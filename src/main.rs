@@ -1,15 +1,24 @@
+// Standard
+use std::f64::consts::PI;
+
 // Local
 mod equalize;
 
 // External
-use image::ImageReader;
+use image::ImageReader; // TODO: I am confused on why this library no work
+use ndarray::{AsArray, arr2};
 
 fn main() {
     // Setup
     // TODO: This should be an image at some point
     let grid: [[f32; 10]; 10] = [[5.0; 10]; 10];
-    // TODO: I am confused on why this library no work
-    // let img = ImageReader::open("data/lena.tif")?.decode()?;
+    // let test = AsArray(grid);
+
+    // let a = arr2(&[[1, 2, 3], [4, 5, 6]]);
+
+    // for ((x, y), value) in a.indexed_iter() {
+    //     print!("{x},{y},{value}|");
+    // }
     let c: f32 = 1.0;
 
     // Run log equalization
