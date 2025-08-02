@@ -5,6 +5,9 @@ use std::env;
 mod equalize;
 mod util;
 
+// TODO: Add a CLI
+// TODO: Add proper error handling instead of unwraps
+// TODO: Add function chaining
 fn main() {
     // Setup
     let cwd = env::current_dir().unwrap();
