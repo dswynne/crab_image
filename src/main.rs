@@ -40,6 +40,7 @@ struct Node {
     kind: NodeKind,
     pos: Pos2,
     size: Vec2,
+    params: NodeParams,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,6 +49,13 @@ enum NodeKind {
     LogEqualize,
     PowerLawEqualize,
     Display,
+}
+
+#[derive(Clone, Copy)]
+enum NodeParams {
+    None,
+    LogEqualize { c: f32 },
+    PowerLawEqualize { c: f32, g: f32 },
 }
 
 impl NodeKind {
@@ -118,19 +126,22 @@ impl Default for FlowApp {
                     id: 1,
                     kind: NodeKind::LoadImage,
                     pos: Pos2::new(60.0, 150.0),
-                    size: Vec2::new(220.0, 100.0),
+                    size: Vec2::new(220.0, 150.0),
+                    params: NodeParams::None,
                 },
                 Node {
                     id: 2,
                     kind: NodeKind::LogEqualize,
                     pos: Pos2::new(360.0, 150.0),
-                    size: Vec2::new(220.0, 100.0),
+                    size: Vec2::new(220.0, 150.0),
+                    params: NodeParams::LogEqualize { c: 1.0 },
                 },
                 Node {
                     id: 3,
                     kind: NodeKind::Display,
                     pos: Pos2::new(660.0, 150.0),
-                    size: Vec2::new(220.0, 100.0),
+                    size: Vec2::new(220.0, 150.0),
+                    params: NodeParams::None,
                 },
             ],
             connections: vec![Connection { from: 1, to: 2 }, Connection { from: 2, to: 3 }],
@@ -285,11 +296,19 @@ impl FlowApp {
         let base_x = 80.0 + (self.nodes.len() as f32 % 4.0) * 260.0;
         let base_y = 220.0 + (self.nodes.len() as f32 / 4.0).floor() * 160.0;
 
+        let params = match kind {
+            NodeKind::LoadImage => NodeParams::None,
+            NodeKind::LogEqualize => NodeParams::LogEqualize { c: 1.0 },
+            NodeKind::PowerLawEqualize => NodeParams::PowerLawEqualize { c: 1.0, g: 0.5 },
+            NodeKind::Display => NodeParams::None,
+        };
+
         self.nodes.push(Node {
             id: next_id,
             kind,
             pos: Pos2::new(base_x, base_y),
-            size: Vec2::new(220.0, 100.0),
+            size: Vec2::new(220.0, 150.0),
+            params,
         });
     }
 
@@ -318,6 +337,8 @@ impl FlowApp {
             node.pos.y = node.pos.y.clamp(canvas_rect.top(), canvas_rect.bottom() - node.size.y);
         }
 
+        response.on_hover_text(node.kind.description());
+
         let background = if *selected_node == Some(node.id) {
             Color32::from_rgb(80, 120, 220)
         } else {
@@ -335,14 +356,25 @@ impl FlowApp {
             egui::FontId::proportional(18.0),
             Color32::WHITE,
         );
-        painter.text(
-            rect.center() + Vec2::new(0.0, 6.0),
-            Align2::CENTER_CENTER,
-            node.kind.description(),
-            egui::FontId::proportional(12.0),
-            Color32::LIGHT_GRAY,
-        );
 
+        // Add parameter UI
+        let center_x = rect.center().x;
+        match &mut node.params {
+            NodeParams::LogEqualize { c } => {
+                let slider_rect = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 90.0), Vec2::new(180.0, 20.0));
+                ui.put(slider_rect, egui::Slider::new(c, 0.1..=10.0).text("c"));
+            }
+            NodeParams::PowerLawEqualize { c, g } => {
+                let slider_rect1 = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 80.0), Vec2::new(180.0, 20.0));
+                ui.put(slider_rect1, egui::Slider::new(c, 0.1..=10.0).text("c"));
+                let slider_rect2 = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 105.0), Vec2::new(180.0, 20.0));
+                ui.put(slider_rect2, egui::Slider::new(g, 0.1..=5.0).text("γ"));
+            }
+            _ => {}
+        }
+
+        // Now paint ports with a new painter borrow
+        let painter = ui.painter();
         if node.kind.has_input() {
             let input_rect = Rect::from_center_size(node.input_point(), Vec2::splat(20.0));
             let input_resp = ui.interact(input_rect, ui.id().with((node.id, "in")), Sense::click());
@@ -391,12 +423,16 @@ impl FlowApp {
                 match node.kind {
                     NodeKind::LoadImage => history.push("Loaded image".to_owned()),
                     NodeKind::LogEqualize => {
-                        data = equalize::logeq(&data, 1.0);
-                        history.push("Applied log equalization".to_owned());
+                        if let NodeParams::LogEqualize { c } = node.params {
+                            data = equalize::logeq(&data, c);
+                            history.push(format!("Applied log equalization (c={:.2})", c));
+                        }
                     }
                     NodeKind::PowerLawEqualize => {
-                        data = equalize::powerlaweq(&data, 1.0, 0.5);
-                        history.push("Applied power-law equalization".to_owned());
+                        if let NodeParams::PowerLawEqualize { c, g } = node.params {
+                            data = equalize::powerlaweq(&data, c, g);
+                            history.push(format!("Applied power-law equalization (c={:.2}, g={:.2})", c, g));
+                        }
                     }
                     NodeKind::Display => {
                         history.push(format!(
