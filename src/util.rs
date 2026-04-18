@@ -16,6 +16,7 @@ pub fn img2array(file: &str) -> Array2<f32> {
     return array.mapv(|x| x as f32);
 }
 
+#[allow(dead_code)]
 pub fn print_array2(data: &Array2<f32>) {
     for row in data.rows() {
         for val in row {
