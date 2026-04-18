@@ -3,32 +3,13 @@ use std::env;
 
 // External
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Sense, Stroke, Vec2};
+use serde::{Serialize, Deserialize};
 
 // Local
 use crate::equalize;
 use crate::util;
 
-pub struct FlowApp {
-    nodes: Vec<Node>,
-    connections: Vec<Connection>,
-    pending_connection: Option<PortRef>,
-    image_path: String,
-    available_files: Vec<String>,
-    status: String,
-    logs: String,
-    selected_node: Option<usize>,
-    next_node_id: usize,
-}
-
-struct Node {
-    id: usize,
-    kind: NodeKind,
-    pos: Pos2,
-    size: Vec2,
-    params: NodeParams,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum NodeKind {
     LoadImage,
     LogEqualize,
@@ -36,16 +17,33 @@ enum NodeKind {
     Display,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 enum NodeParams {
     None,
     LogEqualize { c: f32 },
     PowerLawEqualize { c: f32, g: f32 },
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct Node {
+    id: usize,
+    kind: NodeKind,
+    pos: [f32; 2],
+    size: [f32; 2],
+    params: NodeParams,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct Connection {
     from: usize,
     to: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PipelineData {
+    nodes: Vec<Node>,
+    connections: Vec<Connection>,
+    image_path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,17 +59,33 @@ struct PortRef {
     kind: PortKind,
 }
 
+pub struct FlowApp {
+    nodes: Vec<Node>,
+    connections: Vec<Connection>,
+    pending_connection: Option<PortRef>,
+    image_path: String,
+    available_files: Vec<String>,
+    status: String,
+    logs: String,
+    selected_node: Option<usize>,
+    next_node_id: usize,
+    pipeline_filename: String,
+    available_pipelines: Vec<String>,
+    save_dialog_open: bool,
+    save_filename: String,
+}
+
 impl Node {
     fn rect(&self) -> Rect {
-        Rect::from_min_size(self.pos, self.size)
+        Rect::from_min_size(Pos2::from(self.pos), Vec2::from(self.size))
     }
 
     fn input_point(&self) -> Pos2 {
-        Pos2::new(self.pos.x - 12.0, self.pos.y + self.size.y * 0.5)
+        Pos2::new(self.pos[0] - 12.0, self.pos[1] + self.size[1] * 0.5)
     }
 
     fn output_point(&self) -> Pos2 {
-        Pos2::new(self.pos.x + self.size.x + 12.0, self.pos.y + self.size.y * 0.5)
+        Pos2::new(self.pos[0] + self.size[0] + 12.0, self.pos[1] + self.size[1] * 0.5)
     }
 }
 
@@ -110,22 +124,22 @@ impl Default for FlowApp {
                 Node {
                     id: 1,
                     kind: NodeKind::LoadImage,
-                    pos: Pos2::new(60.0, 150.0),
-                    size: Vec2::new(220.0, 150.0),
+                    pos: [60.0, 150.0],
+                    size: [220.0, 150.0],
                     params: NodeParams::None,
                 },
                 Node {
                     id: 2,
                     kind: NodeKind::LogEqualize,
-                    pos: Pos2::new(360.0, 150.0),
-                    size: Vec2::new(220.0, 150.0),
+                    pos: [360.0, 150.0],
+                    size: [220.0, 150.0],
                     params: NodeParams::LogEqualize { c: 1.0 },
                 },
                 Node {
                     id: 3,
                     kind: NodeKind::Display,
-                    pos: Pos2::new(660.0, 150.0),
-                    size: Vec2::new(220.0, 150.0),
+                    pos: [660.0, 150.0],
+                    size: [220.0, 150.0],
                     params: NodeParams::None,
                 },
             ],
@@ -133,10 +147,14 @@ impl Default for FlowApp {
             pending_connection: None,
             image_path: "data/lena.tif".to_owned(),
             available_files: Vec::new(),
+            available_pipelines: Vec::new(),
             status: "Ready".to_owned(),
             logs: "Use the buttons below to add nodes, then connect them by clicking ports.".to_owned(),
             selected_node: None,
             next_node_id: 4,
+            pipeline_filename: "pipeline.yaml".to_owned(),
+            save_dialog_open: false,
+            save_filename: "pipeline.yaml".to_owned(),
         }
     }
 }
@@ -155,6 +173,24 @@ impl eframe::App for FlowApp {
             }
         }
         self.available_files.sort();
+
+        // Update available pipelines
+        self.available_pipelines.clear();
+        if let Ok(entries) = std::fs::read_dir("pipelines") {
+            for entry in entries.flatten() {
+                if let Some(file_name) = entry.file_name().to_str() {
+                    if file_name.ends_with(".yaml") || file_name.ends_with(".yml") {
+                        self.available_pipelines.push(file_name.to_owned());
+                    }
+                }
+            }
+        }
+        self.available_pipelines.sort();
+
+        // Ensure current pipeline_filename is valid if it exists
+        if !self.available_pipelines.contains(&self.pipeline_filename) && !self.available_pipelines.is_empty() {
+            self.pipeline_filename = self.available_pipelines[0].clone();
+        }
 
         // Ensure current image_path is valid
         if !self.available_files.contains(&self.image_path) {
@@ -177,10 +213,45 @@ impl eframe::App for FlowApp {
                 if ui.button("Run Pipeline").clicked() {
                     self.run_pipeline();
                 }
+                ui.separator();
+                ui.label("Pipeline:");
+                egui::ComboBox::from_label("")
+                    .selected_text(&self.pipeline_filename)
+                    .show_ui(ui, |ui| {
+                        for file in &self.available_pipelines {
+                            ui.selectable_value(&mut self.pipeline_filename, file.clone(), file);
+                        }
+                    });
+                if ui.button("Save As").clicked() {
+                    self.save_dialog_open = true;
+                }
+                if ui.button("Load").clicked() {
+                    self.load_pipeline();
+                }
             });
             ui.separator();
             ui.label(format!("Status: {}", self.status));
         });
+
+        // Save dialog
+        if self.save_dialog_open {
+            egui::Window::new("Save Pipeline")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("Enter filename (without extension):");
+                    ui.text_edit_singleline(&mut self.save_filename);
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            self.save_pipeline_to_file();
+                            self.save_dialog_open = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.save_dialog_open = false;
+                        }
+                    });
+                });
+        }
 
         egui::SidePanel::left("side_panel").resizable(false).show(ctx, |ui| {
             ui.heading("Flow Controls");
@@ -319,8 +390,8 @@ impl FlowApp {
         self.nodes.push(Node {
             id: next_id,
             kind,
-            pos: Pos2::new(base_x, base_y),
-            size: Vec2::new(220.0, 150.0),
+            pos: [base_x, base_y],
+            size: [220.0, 150.0],
             params,
         });
     }
@@ -344,10 +415,11 @@ impl FlowApp {
             *selected_node = Some(node.id);
         }
         if response.dragged() {
-            node.pos += response.drag_delta();
+            node.pos[0] += response.drag_delta().x;
+            node.pos[1] += response.drag_delta().y;
             // Clamp to canvas bounds
-            node.pos.x = node.pos.x.clamp(canvas_rect.left(), canvas_rect.right() - node.size.x);
-            node.pos.y = node.pos.y.clamp(canvas_rect.top(), canvas_rect.bottom() - node.size.y);
+            node.pos[0] = node.pos[0].clamp(canvas_rect.left(), canvas_rect.right() - node.size[0]);
+            node.pos[1] = node.pos[1].clamp(canvas_rect.top(), canvas_rect.bottom() - node.size[1]);
         }
 
         response.on_hover_text(node.kind.description());
@@ -374,13 +446,13 @@ impl FlowApp {
         let center_x = rect.center().x;
         match &mut node.params {
             NodeParams::LogEqualize { c } => {
-                let slider_rect = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 90.0), Vec2::new(180.0, 20.0));
+                let slider_rect = Rect::from_center_size(Pos2::new(center_x, node.pos[1] + 90.0), Vec2::new(180.0, 20.0));
                 ui.put(slider_rect, egui::Slider::new(c, 0.1..=10.0).text("c"));
             }
             NodeParams::PowerLawEqualize { c, g } => {
-                let slider_rect1 = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 80.0), Vec2::new(180.0, 20.0));
+                let slider_rect1 = Rect::from_center_size(Pos2::new(center_x, node.pos[1] + 80.0), Vec2::new(180.0, 20.0));
                 ui.put(slider_rect1, egui::Slider::new(c, 0.1..=10.0).text("c"));
-                let slider_rect2 = Rect::from_center_size(Pos2::new(center_x, node.pos.y + 105.0), Vec2::new(180.0, 20.0));
+                let slider_rect2 = Rect::from_center_size(Pos2::new(center_x, node.pos[1] + 105.0), Vec2::new(180.0, 20.0));
                 ui.put(slider_rect2, egui::Slider::new(g, 0.1..=5.0).text("γ"));
             }
             _ => {}
@@ -481,5 +553,59 @@ impl FlowApp {
         }
 
         path
+    }
+
+    fn save_pipeline_to_file(&mut self) {
+        let mut filename = self.save_filename.clone();
+        if !filename.ends_with(".yaml") {
+            filename.push_str(".yaml");
+        }
+        let filepath = format!("pipelines/{}", filename);
+        let data = PipelineData {
+            nodes: self.nodes.clone(),
+            connections: self.connections.clone(),
+            image_path: self.image_path.clone(),
+        };
+        // Create pipelines directory if it doesn't exist
+        std::fs::create_dir_all("pipelines").unwrap_or(());
+        match serde_yaml::to_string(&data) {
+            Ok(yaml) => {
+                match std::fs::write(&filepath, yaml) {
+                    Ok(_) => {
+                        self.status = format!("Pipeline saved to {}", filepath);
+                        // Update available pipelines
+                        if !self.available_pipelines.contains(&filename) {
+                            self.available_pipelines.push(filename.clone());
+                            self.available_pipelines.sort();
+                        }
+                        self.pipeline_filename = filename;
+                    }
+                    Err(e) => self.status = format!("Failed to save: {}", e),
+                }
+            }
+            Err(e) => self.status = format!("Serialization error: {}", e),
+        }
+    }
+
+    fn load_pipeline(&mut self) {
+        let filepath = format!("pipelines/{}", self.pipeline_filename);
+        match std::fs::read_to_string(&filepath) {
+            Ok(yaml) => {
+                match serde_yaml::from_str::<PipelineData>(&yaml) {
+                    Ok(data) => {
+                        self.nodes = data.nodes;
+                        self.connections = data.connections;
+                        self.image_path = data.image_path;
+                        // Update next_node_id
+                        self.next_node_id = self.nodes.iter().map(|n| n.id).max().unwrap_or(0) + 1;
+                        self.status = format!("Pipeline loaded from {}", filepath);
+                        self.selected_node = None;
+                        self.pending_connection = None;
+                    }
+                    Err(e) => self.status = format!("Deserialization error: {}", e),
+                }
+            }
+            Err(e) => self.status = format!("Failed to read file: {}", e),
+        }
     }
 }

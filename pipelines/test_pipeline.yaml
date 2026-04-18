@@ -1,0 +1,8 @@
+nodes:
+- id: 1
+  kind: LoadImage
+  pos: [60.0, 150.0]
+  size: [220.0, 150.0]
+  params: None
+connections: []
+image_path: data/lena.tif
