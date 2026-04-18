@@ -10,7 +10,7 @@ use crate::equalize;
 use crate::util;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum NodeKind {
+pub enum NodeKind {
     LoadImage,
     LogEqualize,
     PowerLawEqualize,
@@ -18,32 +18,32 @@ enum NodeKind {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
-enum NodeParams {
+pub enum NodeParams {
     None,
     LogEqualize { c: f32 },
     PowerLawEqualize { c: f32, g: f32 },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Node {
-    id: usize,
-    kind: NodeKind,
-    pos: [f32; 2],
-    size: [f32; 2],
-    params: NodeParams,
+pub struct Node {
+    pub id: usize,
+    pub kind: NodeKind,
+    pub pos: [f32; 2],
+    pub size: [f32; 2],
+    pub params: NodeParams,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Connection {
-    from: usize,
-    to: usize,
+pub struct Connection {
+    pub from: usize,
+    pub to: usize,
 }
 
-#[derive(Serialize, Deserialize)]
-struct PipelineData {
-    nodes: Vec<Node>,
-    connections: Vec<Connection>,
-    image_path: String,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PipelineData {
+    pub nodes: Vec<Node>,
+    pub connections: Vec<Connection>,
+    pub image_path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -531,6 +531,10 @@ impl FlowApp {
             }
         }
 
+        // Save the processed image
+        util::array2img(&data, "data/output.png");
+        history.push("Saved output image to data/output.png".to_owned());
+
         self.status = "Pipeline complete".to_owned();
         self.logs = history.join("\n");
     }
@@ -608,4 +612,69 @@ impl FlowApp {
             Err(e) => self.status = format!("Failed to read file: {}", e),
         }
     }
+}
+
+pub fn run_pipeline_cli(filepath: &str) -> Result<String, String> {
+    let yaml = std::fs::read_to_string(filepath)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let data: PipelineData = serde_yaml::from_str(&yaml)
+        .map_err(|e| format!("Deserialization error: {}", e))?;
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let full_path = cwd.join(&data.image_path);
+    let image_path = full_path.to_str().unwrap_or(&data.image_path).to_owned();
+
+    let mut image_data = crate::util::img2array(&image_path);
+    let mut history = Vec::new();
+
+    // Build pipeline path (same logic as in FlowApp)
+    let start = data.nodes.iter().find(|node| node.kind == NodeKind::LoadImage);
+    let Some(start) = start else { return Err("No Load Image node found".to_string()); };
+
+    let mut path = vec![start.id];
+    let mut current = start.id;
+    let mut visited = vec![current];
+
+    while let Some(connection) = data.connections.iter().find(|conn| conn.from == current) {
+        if visited.contains(&connection.to) {
+            break;
+        }
+        visited.push(connection.to);
+        path.push(connection.to);
+        current = connection.to;
+    }
+
+    for node_id in path {
+        if let Some(node) = data.nodes.iter().find(|n| n.id == node_id) {
+            match node.kind {
+                NodeKind::LoadImage => history.push("Loaded image".to_owned()),
+                NodeKind::LogEqualize => {
+                    if let NodeParams::LogEqualize { c } = node.params {
+                        image_data = crate::equalize::logeq(&image_data, c);
+                        history.push(format!("Applied log equalization (c={:.2})", c));
+                    }
+                }
+                NodeKind::PowerLawEqualize => {
+                    if let NodeParams::PowerLawEqualize { c, g } = node.params {
+                        image_data = crate::equalize::powerlaweq(&image_data, c, g);
+                        history.push(format!("Applied power-law equalization (c={:.2}, g={:.2})", c, g));
+                    }
+                }
+                NodeKind::Display => {
+                    history.push(format!(
+                        "Output: {}x{} image, first cell {:.3}",
+                        image_data.ncols(),
+                        image_data.nrows(),
+                        image_data[[0, 0]]
+                    ));
+                }
+            }
+        }
+    }
+
+    // Save the processed image
+    crate::util::array2img(&image_data, "data/output.png");
+    history.push("Saved output image to data/output.png".to_owned());
+
+    Ok(history.join("\n"))
 }
