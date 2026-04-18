@@ -28,6 +28,7 @@ struct FlowApp {
     connections: Vec<Connection>,
     pending_connection: Option<PortRef>,
     image_path: String,
+    available_files: Vec<String>,
     status: String,
     logs: String,
     selected_node: Option<usize>,
@@ -116,25 +117,26 @@ impl Default for FlowApp {
                 Node {
                     id: 1,
                     kind: NodeKind::LoadImage,
-                    pos: Pos2::new(60.0, 80.0),
+                    pos: Pos2::new(60.0, 150.0),
                     size: Vec2::new(220.0, 100.0),
                 },
                 Node {
                     id: 2,
                     kind: NodeKind::LogEqualize,
-                    pos: Pos2::new(360.0, 80.0),
+                    pos: Pos2::new(360.0, 150.0),
                     size: Vec2::new(220.0, 100.0),
                 },
                 Node {
                     id: 3,
                     kind: NodeKind::Display,
-                    pos: Pos2::new(660.0, 80.0),
+                    pos: Pos2::new(660.0, 150.0),
                     size: Vec2::new(220.0, 100.0),
                 },
             ],
             connections: vec![Connection { from: 1, to: 2 }, Connection { from: 2, to: 3 }],
             pending_connection: None,
             image_path: "data/lena.tif".to_owned(),
+            available_files: Vec::new(),
             status: "Ready".to_owned(),
             logs: "Use the buttons below to add nodes, then connect them by clicking ports.".to_owned(),
             selected_node: None,
@@ -145,12 +147,37 @@ impl Default for FlowApp {
 
 impl eframe::App for FlowApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        // Update available files
+        self.available_files.clear();
+        if let Ok(entries) = std::fs::read_dir("data") {
+            for entry in entries.flatten() {
+                if let Some(file_name) = entry.file_name().to_str() {
+                    if file_name.ends_with(".tif") || file_name.ends_with(".png") || file_name.ends_with(".jpg") || file_name.ends_with(".jpeg") {
+                        self.available_files.push(format!("data/{}", file_name));
+                    }
+                }
+            }
+        }
+        self.available_files.sort();
+
+        // Ensure current image_path is valid
+        if !self.available_files.contains(&self.image_path) {
+            if let Some(first) = self.available_files.first() {
+                self.image_path = first.clone();
+            }
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("crab_image Flow GUI");
                 ui.separator();
-                ui.label("Image file:");
-                ui.text_edit_singleline(&mut self.image_path);
+                egui::ComboBox::from_label("Image file:")
+                    .selected_text(&self.image_path)
+                    .show_ui(ui, |ui| {
+                        for file in &self.available_files {
+                            ui.selectable_value(&mut self.image_path, file.clone(), file);
+                        }
+                    });
                 if ui.button("Run Pipeline").clicked() {
                     self.run_pipeline();
                 }
@@ -224,7 +251,7 @@ impl eframe::App for FlowApp {
             let connections = &mut self.connections;
 
             for node in &mut self.nodes {
-                FlowApp::draw_node(ui, node, selected_node, pending_connection, connections);
+                FlowApp::draw_node(ui, node, available_rect, selected_node, pending_connection, connections);
             }
 
             for connection in &self.connections {
@@ -273,6 +300,7 @@ impl FlowApp {
     fn draw_node(
         ui: &mut egui::Ui,
         node: &mut Node,
+        canvas_rect: Rect,
         selected_node: &mut Option<usize>,
         pending_connection: &mut Option<PortRef>,
         connections: &mut Vec<Connection>,
@@ -285,6 +313,9 @@ impl FlowApp {
         }
         if response.dragged() {
             node.pos += response.drag_delta();
+            // Clamp to canvas bounds
+            node.pos.x = node.pos.x.clamp(canvas_rect.left(), canvas_rect.right() - node.size.x);
+            node.pos.y = node.pos.y.clamp(canvas_rect.top(), canvas_rect.bottom() - node.size.y);
         }
 
         let background = if *selected_node == Some(node.id) {
