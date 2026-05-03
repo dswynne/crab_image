@@ -1,15 +1,13 @@
 // Standard
 use std::env;
 
-// External
-use eframe::egui::{self, Vec2};
-
 // Local
 mod equalize;
 mod util;
 mod gui;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         // Run pipeline from YAML file
@@ -25,18 +23,15 @@ fn main() {
             }
         }
     } else {
-        // Launch GUI
-        let options = eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size(Vec2::new(900.0, 600.0)),
-            ..Default::default()
-        };
+        let url = "http://127.0.0.1:3000";
+        println!("Starting web GUI at {url}");
+        if webbrowser::open(url).is_err() {
+            println!("Open {url} in your browser if it does not open automatically.");
+        }
 
-        if let Err(err) = eframe::run_native(
-            "crab_image Flow GUI",
-            options,
-            Box::new(|_cc| Ok(Box::new(gui::FlowApp::default()))),
-        ) {
-            eprintln!("Failed to start GUI: {err}");
+        if let Err(err) = gui::start_server().await {
+            eprintln!("Failed to start server: {err}");
+            std::process::exit(1);
         }
     }
 }

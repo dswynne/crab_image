@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>crab_image Flow GUI</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #e8eaf6;
+      background: #141621;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      background: #1f2430;
+      border-bottom: 1px solid #333;
+    }
+
+    #toolbar strong {
+      font-size: 1rem;
+    }
+
+    #toolbar label,
+    #toolbar select,
+    #toolbar button {
+      color: #f7f8fa;
+      font-size: 0.95rem;
+    }
+
+    #toolbar select,
+    #toolbar button {
+      background: #242a37;
+      border: 1px solid #404860;
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+    }
+
+    #toolbar button:hover,
+    #toolbar select:hover {
+      background: #2c3444;
+    }
+
+    #app {
+      display: flex;
+      height: calc(100vh - 58px);
+    }
+
+    #sidebar {
+      width: 320px;
+      padding: 1rem;
+      background: #181d29;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+    }
+
+    #sidebar h2 {
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+      color: #edf2ff;
+    }
+
+    #sidebar button,
+    #sidebar select,
+    #sidebar input {
+      width: 100%;
+      margin-bottom: 0.75rem;
+      background: #202837;
+      border: 1px solid #38435a;
+      border-radius: 6px;
+      color: #edf2ff;
+      padding: 0.7rem 0.85rem;
+      cursor: pointer;
+    }
+
+    #sidebar button:hover,
+    #sidebar select:hover,
+    #sidebar input:hover {
+      background: #2a3350;
+    }
+
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #graphcanvas {
+      flex: 1;
+      background: #10131b;
+    }
+
+    #status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.9rem 1rem;
+      background: #1b2030;
+      border-top: 1px solid #333;
+      color: #b7c3ff;
+      font-size: 0.94rem;
+    }
+
+    #logs {
+      height: 11rem;
+      padding: 0.9rem 1rem;
+      background: #141924;
+      border-top: 1px solid #333;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      color: #d8deff;
+    }
+
+    #outputSummary {
+      font-size: 0.9rem;
+      color: #cfd8ff;
+      min-height: 2.5rem;
+      white-space: pre-wrap;
+    }
+
+    #outputImage {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #2d3650;
+      margin-top: 0.5rem;
+      max-height: 220px;
+      object-fit: contain;
+      background: #0f1320;
+    }
+
+    .section {
+      margin-bottom: 1.5rem;
+    }
+
+    .section label {
+      display: block;
+      margin-bottom: 0.35rem;
+      color: #9aa5d1;
+      font-size: 0.88rem;
+    }
+
+    .small-button {
+      width: auto;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <strong>crab_image Flow GUI</strong>
+    <label>Image <select id="imageSelector"></select></label>
+    <button id="runPipelineButton">Run Pipeline</button>
+    <label>Pipeline <select id="pipelineSelector"></select></label>
+    <button id="savePipelineButton">Save Pipeline</button>
+    <button id="loadPipelineButton">Load Pipeline</button>
+  </div>
+
+  <div id="app">
+    <aside id="sidebar">
+      <div class="section">
+        <h2>Nodes</h2>
+        <button id="addLoadImage">Add Load Image</button>
+        <button id="addLogEqualize">Add Log Equalize</button>
+        <button id="addPowerLawEqualize">Add Power Law Equalize</button>
+        <button id="addDisplay">Add Display</button>
+      </div>
+
+      <div class="section">
+        <h2>Pipeline</h2>
+        <button id="newGraph">New Graph</button>
+      </div>
+
+      <div class="section">
+        <h2>Output</h2>
+        <div id="runStatus">Ready</div>
+        <div id="outputSummary">Output preview is available after a run.</div>
+        <img id="outputImage" src="/data/output.png" alt="Processed output" />
+      </div>
+    </aside>
+
+    <main id="main">
+      <div id="graphcanvas"></div>
+      <div id="status-bar">
+        <span id="statusMessage">Drag nodes and connect outputs to inputs.</span>
+        <span id="graphInfo">0 nodes · 0 links</span>
+      </div>
+      <div id="logs"><pre id="logText">Ready.</pre></div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.9.0/build/litegraph.min.js"></script>
+  <script src="/main.js"></script>
+</body>
+</html>
